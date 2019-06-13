@@ -1,0 +1,179 @@
+package com.fnbory.myblog.controller;
+
+import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.extra.servlet.ServletUtil;
+import com.fnbory.myblog.Service.ArticleService;
+import com.fnbory.myblog.common.BlogConst;
+import com.fnbory.myblog.common.CommonResult;
+import com.fnbory.myblog.common.enums.ArticleStatus;
+import com.fnbory.myblog.common.enums.BlogEnums;
+import com.fnbory.myblog.common.enums.PageNumber;
+import com.fnbory.myblog.common.enums.PostType;
+import com.fnbory.myblog.entities.Article;
+import com.fnbory.myblog.entities.User;
+import com.fnbory.myblog.entities.custom.ArticleCustom;
+import com.github.pagehelper.PageInfo;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpServletRequest;
+import java.util.SortedMap;
+
+
+@Controller
+@RequestMapping("/admin/page")
+public class PageController  {
+	@Autowired
+	private ArticleService articleService;
+
+	/**
+	 * 显示所有页面
+	 *
+	 * @param model
+	 * @param page
+	 * @param limit
+	 * @return
+	 */
+	@GetMapping
+	public String page(Model model, @RequestParam(value = "page", defaultValue = "1") int page,
+			@RequestParam(value = "limit", defaultValue = "10") int limit,
+			@RequestParam(value = "status", defaultValue = "0") int status) {
+		ArticleCustom articleCustom = new ArticleCustom();
+		articleCustom.setArticleStatus(status);
+		articleCustom.setArticlePost(PostType.POST_TYPE_PAGE.getValue());
+		PageInfo<ArticleCustom> pageInfo = articleService.findPageArticle(page, limit, articleCustom);
+		System.out.println(pageInfo.getList().size()+"wefwefwfwef");
+		model.addAttribute("info", pageInfo);
+		// 已发布条数
+		model.addAttribute("published", articleService.countByStatus(0, PostType.POST_TYPE_PAGE.getValue()));
+		// 草稿条数
+		model.addAttribute("draft", articleService.countByStatus(1, PostType.POST_TYPE_PAGE.getValue()));
+		model.addAttribute("status", status);
+		return "admin/admin_page";
+	}
+
+
+	@GetMapping(value = "/{articleUrl}")
+	public String page(@PathVariable("articleUrl")String articleUrl, Model model, HttpServletRequest request) {
+		System.out.println(articleUrl);
+		ArticleCustom articleCustom = articleService.findByArticleUrl(articleUrl);
+		if (articleCustom == null) {
+			System.out.println("shit!!");
+		}
+//		if (!checkRepeatIp(request, articleCustom.getId())) {
+//			updateArticleViews(articleCustom.getId(), articleCustom.getArticleViews());
+//		}
+		model.addAttribute("article", articleCustom);
+		return "themes/pinghsu/page";
+	}
+
+	/**
+	 * 新建页面
+	 * 
+	 * @return
+	 */
+	@GetMapping(value = "/new")
+	public String newPage() {
+		return "admin/admin_new_page";
+	}
+
+	/**
+	 * 保存页面
+	 *
+	 * @param article
+	 * @param request
+	 * @return
+	 */
+	@PostMapping(value = "/new/save")
+	@ResponseBody
+	public CommonResult save(Article article, HttpServletRequest request) {
+		try {
+			if (StrUtil.isEmpty(article.getArticleTitle())) {
+				return new CommonResult(204, "标题不能为空");
+			}
+			if (article.getId() == null) {
+				// 判断文章链接是否重复
+				if (!StrUtil.isEmpty(article.getArticleUrl())) {
+					// 查询url是否重复
+					int repeat = articleService.findRepeatByUrl(article.getArticleUrl());
+					if (repeat != 0) {
+						return new CommonResult(204, "路径已存在");
+					}
+				}
+			//	User user = (User) request.getSession().getAttribute(BlogConst.USER_SESSION_KEY);
+				article.setUserId(1);
+				article.setArticleNewstime(DateUtil.date());
+				article.setArticleLasttime(DateUtil.date());
+				// 如果自定义链接为空则按时间戳生成链接
+				if (StrUtil.isEmpty(article.getArticleUrl())) {
+					article.setArticleUrl(String.valueOf(System.currentTimeMillis() / 1000));
+				}
+				// 如果没有选择略缩图则随机一张图
+				if (StrUtil.isEmpty(article.getArticleThumbnail())) {
+					article.setArticleThumbnail("/static/img/rand/" + RandomUtil.randomInt(1, 19) + ".jpg");
+				}
+				articleService.save(article, null, null);
+				// 添加日志
+			//	logService.save(new Log(LogConstant.PUBLISH_AN_PAGE, LogConstant.SUCCESS,
+					//	ServletUtil.getClientIP(request), DateUtil.date()));
+			} else {
+				// 如果没有选择略缩图则随机一张图
+				if (StrUtil.isEmpty(article.getArticleThumbnail())) {
+					article.setArticleThumbnail("/static/img/rand/" + RandomUtil.randomInt(1, 19) + ".jpg");
+				}
+				// 页面最后修改时间
+				article.setArticleLasttime(DateUtil.date());
+				articleService.update(article, null, null);
+				// 添加日志
+			//	logService.save(new Log(LogConstant.UPDATE_AN_PAGE, LogConstant.SUCCESS,
+			//	ServletUtil.getClientIP(request), DateUtil.date()));
+			}
+		} catch (Exception e) {
+		//	log.error("添加或更新失败" + e.getMessage());
+			return new CommonResult(204, BlogEnums.ERROR.getMessage());
+		}
+		return new CommonResult(200, BlogEnums.PRESERVE_SUCCESS.getMessage());
+	}
+
+	/**
+	 * 彻底删除页面
+	 *
+	 * @param id
+	 * @return
+	 */
+	@GetMapping(value = "/remove")
+	public String remove(@RequestParam(value = "id") int id, HttpServletRequest request) {
+		try {
+			articleService.remove(id);
+			// 添加日志
+		//	logService.save(new Log(LogConstant.REMOVE_AN_PAGE, LogConstant.SUCCESS, ServletUtil.getClientIP(request),
+		//			DateUtil.date()));
+		} catch (Exception e) {
+		//	log.error("删除文章失败" + e.getMessage());
+		}
+		return "redirect:/admin/page?status=0";
+	}
+
+//	/**
+//	 * 修改页面
+//	 *
+//	 * @param model
+//	 * @return
+//	 */
+	@GetMapping(value = "/edit")
+	public String editArticle(Model model, @RequestParam(value = "article_id") Integer article_id) {
+		try {
+			// 获取文章信息
+			ArticleCustom articleCustom = articleService.findByArticleId(article_id);
+			model.addAttribute("articleCustom", articleCustom);
+		} catch (Exception e) {
+			//log.error(e.getMessage());
+		}
+		return "admin/admin_edit_page";
+	}
+}
